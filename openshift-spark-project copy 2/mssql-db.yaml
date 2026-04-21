@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mssql-db
+spec:
+  ports:
+  - port: 1433
+  selector:
+    app: mssql
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mssql
+spec:
+  selector:
+    matchLabels:
+      app: mssql
+  template:
+    metadata:
+      labels:
+        app: mssql
+    spec:
+      containers:
+      - name: mssql
+        # This is the Red Hat Certified image for OpenShift
+        image: registry.redhat.io/mssql/rhel9/mssql-server-2022:latest
+        env:
+        - name: ACCEPT_EULA
+          value: "Y"
+        - name: MSSQL_SA_PASSWORD
+          value: "SparkTest#2026"
+        ports:
+        - containerPort: 1433
+        # No extra securityContext needed; this image is built for it
+        volumeMounts:
+        - name: mssql-data
+          mountPath: /var/opt/mssql
+      volumes:
+      - name: mssql-data
+        emptyDir: {}

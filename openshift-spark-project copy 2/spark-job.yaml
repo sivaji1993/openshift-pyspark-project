@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-vault-final-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: spark-processor
+        image: image-registry.openshift-image-registry.svc:5000/crt-redhatiam-dev/spark-app:latest
+        workingDir: /opt/app-root/src
+        env:
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: mssql-vault-mock
+                key: username
+          - name: DB_PASS
+            valueFrom:
+              secretKeyRef:
+                name: mssql-vault-mock
+                key: password
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            export PYTHONPATH=/opt/app-root/src
+            spark-submit --master "local[*]" /opt/app-root/src/main.py
+      restartPolicy: Never

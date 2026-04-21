@@ -1,0 +1,25 @@
+apiVersion: "sparkoperator.k8s.io/v1beta2"
+kind: SparkApplication
+metadata:
+  name: multi-db-extract
+spec:
+  type: Python
+  mode: cluster
+  image: "spark-job-app:latest" 
+  imagePullPolicy: Always
+  mainApplicationFile: "local:///opt/app-root/src/main.py" # Corrected path
+  sparkVersion: "3.5.0"
+  restartPolicy:
+    type: OnFailure
+  sparkConf:
+    # Important: Tell Spark where to find the JDBC jars in the container
+    "spark.driver.extraClassPath": "/opt/spark/jars/*"
+    "spark.executor.extraClassPath": "/opt/spark/jars/*"
+  driver:
+    cores: 1
+    memory: "512m"
+    serviceAccount: spark-sa
+  executor:
+    instances: 1
+    cores: 1
+    memory: "512m"

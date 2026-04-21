@@ -1,0 +1,26 @@
+FROM registry.access.redhat.com/ubi8/python-39
+
+USER root
+RUN yum install -y java-11-openjdk-devel && yum clean all
+
+WORKDIR /opt/app-root/src
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN mkdir -p /opt/spark/jars
+COPY drivers/ojdbc11.jar /opt/spark/jars/
+COPY drivers/mssql-jdbc-12.6.1.jre11.jar /opt/spark/jars/
+
+# Copy all source files including the new __init__.py files
+COPY src/ /opt/app-root/src/
+
+# Set Environment Variables
+ENV SPARK_HOME=/opt/app-root/lib/python3.9/site-packages/pyspark
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+# Add the current directory to PYTHONPATH
+ENV PYTHONPATH=/opt/app-root/src
+ENV PATH=$PATH:$SPARK_HOME/bin
+
+RUN chmod -R g=u /opt/app-root/src /opt/spark/jars
+USER 1001

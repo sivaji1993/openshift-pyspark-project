@@ -1,0 +1,18 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-extraction-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: spark-iam-processor
+        image: image-registry.openshift-image-registry.svc:5000/crt-redhatiam-dev/spark-app:latest
+        workingDir: /opt/app-root/src
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            export PYTHONPATH=/opt/app-root/src
+            spark-submit --master local[*] /opt/app-root/src/main.py
+      restartPolicy: Never
+  backoffLimit: 0
