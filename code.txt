@@ -1,0 +1,150 @@
+mkdir -p iam-dev-project/{docker,src/extraction,src/utils}
+cd iam-dev-project
+touch src/_init.py src/extraction/init.py src/utils/init_.py
+
+
+# Create Requirements
+cat <<EOF > requirements.txt
+pyspark==3.5.0
+requests==2.31.0
+EOF
+
+# Create Spark Session Utility
+cat <<EOF > src/utils/spark_session.py
+from pyspark.sql import SparkSession
+def get_spark_session(app_name):
+    return SparkSession.builder.appName(app_name).config("spark.driver.bindAddress", "127.0.0.1").getOrCreate()
+EOF
+
+# Create the 10-Record IAM Dataset logic
+cat <<EOF > src/extraction/reader.py
+import os
+from pyspark.sql import SparkSession
+class DBReader:
+    def __init__(self, spark: SparkSession):
+        self.spark = spark
+    def read_db(self):
+        user = os.getenv("DB_USER")
+        if user: print(f"\n--- SUCCESS: Vault Secret Verified. User: {user} ---\n")
+        schema = ["user_id", "user_name", "role_name", "department", "access_level"]
+        data = [
+            ("USR1001", "v_sinha", "Data_Engineer_Sr", "Data_Platform", "Admin"),
+            ("USR1002", "a_smith", "Security_Analyst", "Cyber_Security", "Read_Only"),
+            ("USR1003", "m_kumar", "DevOps_Lead", "Infrastructure", "Admin"),
+            ("USR1004", "s_chen", "Data_Scientist", "Analytics", "Contributor"),
+            ("USR1005", "j_doe", "Compliance_Officer", "Legal", "Auditor"),
+            ("USR1006", "r_jones", "Cloud_Architect", "Infrastructure", "Admin"),
+            ("USR1007", "p_sharma", "ML_Engineer", "AI_Labs", "Contributor"),
+            ("USR1008", "l_white", "DBA_Specialist", "Data_Platform", "Admin"),
+            ("USR1009", "k_patel", "Network_Engineer", "Connectivity", "Read_Only"),
+            ("USR1010", "h_tanaka", "Product_Owner", "Digital_Exp", "Auditor")
+        ]
+        return self.spark.createDataFrame(data, schema)
+EOF
+
+# Create Main Entry Point
+cat <<EOF > src/main.py
+from utils.spark_session import get_spark_session
+from extraction.reader import DBReader
+def main():
+    spark = get_spark_session("IAM_Processing_Job")
+    reader = DBReader(spark)
+    df = reader.read_db()
+    df.show(truncate=False)
+    spark.stop()
+if __name__ == "__main__":
+    main()
+EOF
+
+
+
+cat <<EOF > docker/Dockerfilejob
+FROM registry.access.redhat.com/ubi8/python-39
+USER root
+RUN yum install -y java-11-openjdk-devel && yum clean all
+WORKDIR /opt/app-root/src
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ /opt/app-root/src/
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+ENV PYTHONPATH=/opt/app-root/src
+ENV PATH=\$PATH:/opt/app-root/lib/python3.9/site-packages/pyspark/bin
+RUN chmod -R g=u /opt/app-root/src
+USER 1001
+EOF
+
+
+
+
+# Create BuildConfig and ImageStream
+cat <<EOF > setup.yaml
+apiVersion: v1
+kind: List
+items:
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: spark-app
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    name: spark-build
+  spec:
+    source:
+      type: Binary
+    strategy:
+      type: Docker
+      dockerStrategy:
+        dockerfilePath: docker/Dockerfilejob
+    output:
+      to:
+        kind: ImageStreamTag
+        name: spark-app:latest
+EOF
+
+oc apply -f setup.yaml
+
+# Create the Vault-Mock Secret
+oc create secret generic mssql-vault-mock --from-literal=username='iam_admin_sivaji'
+
+
+
+# Define the Job
+cat <<EOF > job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-vault-final-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: spark-processor
+        image: image-registry.openshift-image-registry.svc:5000/$(oc project -q)/spark-app:latest
+        env:
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: mssql-vault-mock
+                key: username
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            export PYTHONPATH=/opt/app-root/src
+            spark-submit --master "local[*]" /opt/app-root/src/main.py
+      restartPolicy: Never
+EOF
+
+# Start the Build (Takes 1-2 minutes)
+oc start-build spark-build --from-dir=. --follow
+
+# Run the Job
+oc delete job iam-vault-final-job --ignore-not-found
+oc apply -f job.yaml
+
+# Wait for Job to start and show logs
+echo "Waiting for Spark Job to initialize..."
+sleep 15
+oc logs -f job/iam-vault-final-job
+
+
